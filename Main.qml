@@ -1354,7 +1354,7 @@ Item {
         var shown = { asked: root.askedText, body: root.bubbleBody }
         var i
         for (i = 0; i < next.length; i++) {
-          var same = Thread.sameExchange(next[i], shown)
+          var same = Thread.sameTurn(next[i], shown)
           if (!same && !Thread.sameQuestion(next[i], shown)) continue
           if (same) {
             var kept = next[i]

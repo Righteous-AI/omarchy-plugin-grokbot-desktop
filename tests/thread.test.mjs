@@ -126,6 +126,21 @@ test('a later reply is filed after the question still on screen, not above it', 
   assert.equal(onlyLive.length, 0)
 })
 
+test('a live turn is filed before a newer reply when the gateway stored a clipped copy', () => {
+  const live = { asked: 'mine', key: '', body: 'a reply that goes on and on, and the card keeps the tail' }
+  const incoming = [
+    { key: 'u', asked: 'mine', body: 'a reply that goes on and on' },
+    { key: 'g', asked: 'from the other bot', body: 'later reply' }
+  ]
+  const merged = context.mergeExchanges([], incoming, live, 200)
+  assert.equal(merged.length, 2)
+  assert.equal(merged[0].asked, 'mine')
+  assert.equal(merged[0].body, live.body)
+  assert.equal(merged[1].asked, 'from the other bot')
+  assert.equal(context.liveIsFiled([incoming[0]], live), true)
+  assert.equal(context.liveIsFiled([incoming[0], incoming[1]], live), true)
+})
+
 test('a live slot whose question is already in the list is filed, even when its reply text differs', () => {
   const history = [
     { asked: 'the question', body: 'the reply' },

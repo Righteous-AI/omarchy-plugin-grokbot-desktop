@@ -42,12 +42,23 @@ function liveIsFiled(history, live) {
   for (i = 0; i < (history || []).length; i++) {
     var row = history[i]
     if (!row || !row.body) continue
-    if (sameExchange(row, live) || sameQuestion(row, live)) at = i
+    if (sameTurn(row, live) || sameQuestion(row, live)) at = i
   }
   if (at < 0) return false
   if (at < history.length - 1) return true
-  if (sameExchange(history[at], live)) return true
+  if (sameTurn(history[at], live)) return true
   return exchangeText(live.body) !== exchangeText(history[at].body)
+}
+
+function sameBody(a, b) {
+  var aBody = exchangeText(a)
+  var bBody = exchangeText(b)
+  if (aBody === "" || bBody === "") return false
+  if (aBody === bBody) return true
+  // The card keeps the whole reply while the gateway stores a clipped copy, and
+  // a clarification or a note can be appended on one side. One text holding the
+  // other whole is the same reply.
+  return aBody.indexOf(bBody) === 0 || bBody.indexOf(aBody) === 0
 }
 
 function sameExchange(a, b) {
@@ -55,15 +66,23 @@ function sameExchange(a, b) {
   // Both rows carry a gateway key: the key alone decides. Two turns can share
   // a reply and must stay apart.
   if (a.key && b.key) return String(a.key) === String(b.key)
-  var aBody = exchangeText(a.body)
-  var bBody = exchangeText(b.body)
   // Same reply text is the same turn. A steered follow-up is appended to the
   // local question, so the gateway row may carry only one of the two lines.
-  if (aBody === "" || bBody === "" || aBody !== bBody) return false
+  if (!sameBody(a.body, b.body)) return false
   var aAsked = askedShown(a.asked)
   var bAsked = askedShown(b.asked)
   if (aAsked === bAsked || aAsked === "" || bAsked === "") return true
   return aAsked.indexOf(bAsked) !== -1 || bAsked.indexOf(aAsked) !== -1
+}
+
+// The live slot carries no gateway key, so body text alone decides whether it
+// is already in the list. Identical wording from the reader is common enough
+// that the question counts too, as long as one reply holds the other.
+function sameTurn(a, b) {
+  if (!a || !b) return false
+  if (a.key && b.key) return String(a.key) === String(b.key)
+  if (sameExchange(a, b)) return true
+  return sameQuestion(a, b) && sameBody(a.body, b.body)
 }
 
 function preferExchange(kept, row) {
@@ -114,14 +133,15 @@ function mergeExchanges(existing, incoming, live, limit) {
     if (known) continue
     // The on-screen turn is not copied while it is the latest one. A later
     // turn has to land after it, or the new reply shows above the old question.
-    if (live && sameExchange(live, row)) {
+    // The live slot has no gateway key, so match it as a turn, not just text.
+    if (live && sameTurn(live, row)) {
       sawLive = preferExchange(row, live)
       continue
     }
     if (sawLive) {
       var already = false
       for (j = 0; j < out.length; j++) {
-        if (!sameExchange(out[j], sawLive)) continue
+        if (!sameTurn(out[j], sawLive)) continue
         out[j] = preferExchange(out[j], sawLive)
         already = true
         break
