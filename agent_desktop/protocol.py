@@ -116,7 +116,11 @@ async def stdio():
 class Output:
     def __init__(self, writer):
         self.writer = writer
-        self.queue = asyncio.Queue(maxsize=32)
+        # A cap of 32 filled during a long reply, the writer gave up, and
+        # closing the adapter sent session.interrupt. Hermes then stopped the
+        # turn. The card showed the few lines already delivered. The Hermes
+        # app, which keeps its socket open, showed the rest.
+        self.queue = asyncio.Queue()
         self.failure = asyncio.get_running_loop().create_future()
         self.task = asyncio.create_task(self.run())
 
@@ -138,7 +142,7 @@ class Output:
             raw = await self.queue.get()
             try:
                 self.writer.write(raw)
-                await asyncio.wait_for(self.writer.drain(), 5)
+                await self.writer.drain()
             finally:
                 self.queue.task_done()
 

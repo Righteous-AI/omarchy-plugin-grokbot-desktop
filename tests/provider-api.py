@@ -91,18 +91,24 @@ class ProtocolTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(Fault):
             async for _ in lines(reader):
                 pass
-    async def test_output_backpressure_closes_instead_of_losing_terminal_silently(self):
-        writer = SimpleNamespace(write=lambda _: None, drain=AsyncMock(), close=lambda: None)
+    async def test_a_long_reply_is_not_cut_when_the_reader_is_slow(self):
+        started = asyncio.Event()
+
+        async def drain():
+            started.set()
+            await asyncio.sleep(6)
+
+        writer = SimpleNamespace(write=lambda _: None, drain=drain, close=lambda: None)
         output = Output(writer)
-        for i in range(33):
-            output.put({'n': i})
-        self.assertEqual(output.failure.result().code, 'limit_exceeded')
-        self.assertEqual(output.queue.qsize(), 32)
-        # A slot opening after the refusal must not carry a later frame.
-        # That hole was the sequence gap on the card.
-        output.queue.get_nowait()
-        self.assertFalse(output.put({'n': 33}))
-        self.assertEqual(output.queue.qsize(), 31)
+        server = Server(SimpleNamespace(), output)
+        for i in range(40):
+            server.event('message.delta', {'n': i})
+        self.assertFalse(output.failure.done())
+        self.assertEqual(server.sequence, 40)
+        await asyncio.wait_for(started.wait(), 1)
+        await asyncio.sleep(5.2)
+        self.assertFalse(output.task.done(), 'a slow reader must not end the stream')
+        output.task.cancel()
         await output.close()
     async def test_partial_lines(self):
         reader = asyncio.StreamReader()
