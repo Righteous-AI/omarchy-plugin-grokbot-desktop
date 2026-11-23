@@ -297,3 +297,16 @@ test('the history poll leaves an ask in flight alone and slows while the card is
   assert.match(method('refreshHistory'), /root\.daemonMode \|\| !root\.present \|\| root\.asking \|\| historyProc\.running/);
   assert.match(main, /id: historyRefreshTimer\n(\s*\/\/.*\n)*\s*interval: root\.bubbleOpen \? 2000 : 30000/);
 });
+
+test('a steer the turn would not take joins a line already held, instead of replacing it', () => {
+  const timer = {restarts: 0, restart() { this.restarts++; }};
+  const root = harness(['holdLine'], {queuedPrompt: {value: 'first', botId: 'grok', since: 0, holdOther: true}},
+    {queuedPromptTimer: timer});
+  root.holdLine('second', 'grok');
+  assert.equal(root.queuedPrompt.value, 'first\n\nsecond');
+  assert.equal(root.queuedPrompt.holdOther, true);
+  assert.equal(timer.restarts, 1);
+  root.holdLine('elsewhere', 'other');
+  assert.equal(root.queuedPrompt.value, 'elsewhere');
+  assert.equal(root.queuedPrompt.botId, 'other');
+});

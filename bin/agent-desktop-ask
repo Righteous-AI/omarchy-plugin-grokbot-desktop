@@ -171,6 +171,13 @@ async def streamed(client, params, reader, on_event, out):
         for line in pending:
             out({'ev': 'steered', 'ok': False, 'text': line, 'status': 'Steer was not sent.'})
         pending.clear()
+        # Sent, but the turn ended before Hermes answered. It may or may not have
+        # been applied, so the card must not resend it on its own: it goes back
+        # to the draft for the user to decide.
+        for line in steers.values():
+            out({'ev': 'steered', 'ok': False, 'unconfirmed': True, 'text': line,
+                 'status': 'The turn ended before this steer was confirmed.'})
+        steers.clear()
         for task in (frame_task, input_task):
             task.cancel()
         await asyncio.gather(frame_task, input_task, return_exceptions=True)

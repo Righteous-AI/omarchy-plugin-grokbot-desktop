@@ -430,13 +430,9 @@ Item {
   // The poll files the finished turn in the history a moment before the live
   // slot is cleared. Until then the two hold the same reply; show it once.
   readonly property bool liveTurnFiled: {
-    if (root.asking || root.awaitingId !== "" || root.bubbleBody === "") return false
-    var shown = { asked: root.askedText, body: root.bubbleBody }
-    var i
-    for (i = 0; i < root.history.length; i++) {
-      if (Thread.sameExchange(root.history[i], shown)) return true
-    }
-    return false
+    if (root.asking || root.awaitingId !== "") return false
+    if (root.askedText === "" && root.bubbleBody === "") return false
+    return Thread.liveIsFiled(root.history, { asked: root.askedText, body: root.bubbleBody })
   }
   // Bob works while his ask runs and while its answer is on the way.
   readonly property bool busyHere: root.askingHere || root.waitingHere
@@ -1337,15 +1333,18 @@ Item {
         var shown = { asked: root.askedText, body: root.bubbleBody }
         var i
         for (i = 0; i < next.length; i++) {
-          if (!Thread.sameExchange(next[i], shown)) continue
-          var kept = next[i]
-          var liveAsked = Thread.askedShown(root.askedText)
-          var keptAsked = Thread.askedShown(kept.asked)
-          var asked = liveAsked.length > keptAsked.length ? liveAsked : keptAsked
-          var files = (kept.files || []).length ? kept.files : root.askedFiles
-          var links = (kept.links || []).length ? kept.links : root.noticeLinks
-          next = next.slice()
-          next[i] = Object.assign({}, kept, { asked: asked, files: files, links: links })
+          var same = Thread.sameExchange(next[i], shown)
+          if (!same && !Thread.sameQuestion(next[i], shown)) continue
+          if (same) {
+            var kept = next[i]
+            var liveAsked = Thread.askedShown(root.askedText)
+            var keptAsked = Thread.askedShown(kept.asked)
+            var asked = liveAsked.length > keptAsked.length ? liveAsked : keptAsked
+            var files = (kept.files || []).length ? kept.files : root.askedFiles
+            var links = (kept.links || []).length ? kept.links : root.noticeLinks
+            next = next.slice()
+            next[i] = Object.assign({}, kept, { asked: asked, files: files, links: links })
+          }
           retireLive = true
           break
         }
@@ -2146,6 +2145,17 @@ Item {
 
   property var queuedPrompt: null
 
+  // Hold a line until the running ask ends. A line already held for the same
+  // bot is kept, with the new one after it, so neither is lost.
+  function holdLine(value, botId) {
+    var held = root.queuedPrompt
+    var text = String(value || "")
+    if (held && held.holdOther && held.botId === botId && held.value !== "" && held.value !== text)
+      text = held.value + "\n\n" + text
+    root.queuedPrompt = { value: text, botId: botId, since: Date.now(), holdOther: true }
+    queuedPromptTimer.restart()
+  }
+
   // Sends a queued prompt. A line queued behind a stopping ask goes with the
   // draft it was typed in and gives up after 5 seconds. A line held for another
   // bot keeps itself, waits out that whole run, and moves the card to the bot
@@ -2611,10 +2621,13 @@ Item {
           root.pendingSteer = ""
           if (ev.ok === true && steered !== "") {
             root.askedText = root.askedText === "" ? steered : (root.askedText + "\n\n" + steered)
+          } else if (steered !== "" && ev.unconfirmed === true) {
+            // Hermes may already have applied it. Put it back in the draft
+            // instead of sending it again.
+            if (root.promptDraft === "") root.promptDraft = steered
           } else if (steered !== "") {
             // The turn would not take it. Keep it and send it when this run ends.
-            root.queuedPrompt = { value: steered, botId: root.askBotId, since: Date.now(), holdOther: true }
-            queuedPromptTimer.restart()
+            root.holdLine(steered, root.askBotId)
           }
         } else if (ev.ev === "prompt") {
           root.showPrompt(Object.assign({}, ev, { bot: root.askBotId }), true)

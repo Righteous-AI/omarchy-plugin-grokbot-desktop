@@ -110,3 +110,14 @@ test('two keyed turns with the same reply stay apart', () => {
     [{ key: 'd', asked: 'ok', body: 'Done.' }], null, 200)
   assert.equal(fresh.length, 2)
 })
+
+test('a live slot whose question is already in the list is filed, even when its reply text differs', () => {
+  const history = [
+    { asked: 'the question', body: 'the reply' },
+    { asked: 'a later one', body: 'newer' }
+  ]
+  const stuck = { asked: 'the question', body: 'Provider event sequence has a gap or duplicate.' }
+  assert.equal(context.liveIsFiled(history, stuck), true)
+  assert.equal(context.liveIsFiled([{ asked: 'the question', body: 'the reply' }], stuck), true)
+  assert.equal(context.liveIsFiled([{ asked: 'other', body: 'the reply' }], stuck), false)
+})

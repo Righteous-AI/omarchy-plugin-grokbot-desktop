@@ -26,6 +26,30 @@ function askedShown(value) {
   return inner || text
 }
 
+function sameQuestion(a, b) {
+  var aAsked = askedShown(a && a.asked)
+  var bAsked = askedShown(b && b.asked)
+  if (aAsked === "" || bAsked === "") return false
+  return aAsked === bAsked
+}
+
+// The live slot sits under the history list. Once that question is already
+// in the list, leaving the slot up pins the old turn at the bottom.
+function liveIsFiled(history, live) {
+  if (!live) return false
+  var at = -1
+  var i
+  for (i = 0; i < (history || []).length; i++) {
+    var row = history[i]
+    if (!row || !row.body) continue
+    if (sameExchange(row, live) || sameQuestion(row, live)) at = i
+  }
+  if (at < 0) return false
+  if (at < history.length - 1) return true
+  if (sameExchange(history[at], live)) return true
+  return exchangeText(live.body) !== exchangeText(history[at].body)
+}
+
 function sameExchange(a, b) {
   if (!a || !b) return false
   // Both rows carry a gateway key: the key alone decides. Two turns can share

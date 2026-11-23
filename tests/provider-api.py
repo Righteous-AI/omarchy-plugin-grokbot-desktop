@@ -370,6 +370,45 @@ class EarlySteerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(steered, [{
             'ev': 'steered', 'ok': False, 'text': 'also this', 'status': 'Steer was not sent.'}])
 
+    async def test_a_steer_still_unanswered_when_the_turn_ends_goes_back_unconfirmed(self):
+        loader = importlib.machinery.SourceFileLoader('agent_desktop_ask_late', str(ROOT / 'bin' / 'agent-desktop-ask'))
+        spec = importlib.util.spec_from_loader('agent_desktop_ask_late', loader)
+        ask = importlib.util.module_from_spec(spec)
+        loader.exec_module(ask)
+
+        class Client:
+            def __init__(self):
+                self.sent = []
+                self.frames = asyncio.Queue()
+            async def send(self, op, method, payload):
+                self.sent.append((op, method, payload))
+            async def read(self):
+                return await self.frames.get()
+
+        client = Client()
+        reader = asyncio.StreamReader()
+        events = []
+        params = {'agentId': 'mr-x', 'requestId': 'abcdef123456', 'text': 'first'}
+        task = asyncio.create_task(ask.streamed(client, params, reader, lambda frame: None, events.append))
+        await client.frames.put({'id': 'send', 'result': {'accepted': True, 'sessionId': 'session-1'}})
+        for _ in range(20):
+            await asyncio.sleep(0)
+        reader.feed_data(b'{"op":"steer","text":"also this"}\n')
+        for _ in range(20):
+            await asyncio.sleep(0)
+            if any(call[1] == 'message.steer' for call in client.sent):
+                break
+        self.assertTrue(any(call[1] == 'message.steer' for call in client.sent))
+        await client.frames.put({'event': 'message.finished', 'params': {
+            'agentId': 'mr-x', 'requestId': 'abcdef123456', 'status': 'completed', 'text': 'done'}})
+        event, _ = await asyncio.wait_for(task, 2)
+        self.assertEqual(event, 'message.finished')
+        steered = [event for event in events if event.get('ev') == 'steered']
+        self.assertEqual(len(steered), 1)
+        self.assertEqual(steered[0]['text'], 'also this')
+        self.assertIs(steered[0]['ok'], False)
+        self.assertIs(steered[0]['unconfirmed'], True)
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -1721,8 +1721,8 @@ test('each bot keeps a scrolling history of its conversation', () => {
   // While the poll files the finished turn the live slot holds it too; the
   // list copy shows and the live slot stays hidden until it is cleared.
   assert.match(main, /readonly property bool liveTurnFiled: \{/)
-  assert.match(main, /if \(root\.asking \|\| root\.awaitingId !== "" \|\| root\.bubbleBody === ""\) return false/)
-  assert.match(main, /if \(Thread\.sameExchange\(root\.history\[i\], shown\)\) return true/)
+  assert.match(main, /if \(root\.asking \|\| root\.awaitingId !== ""\) return false/)
+  assert.match(main, /return Thread\.liveIsFiled\(root\.history, \{ asked: root\.askedText, body: root\.bubbleBody \}\)/)
   // One scrolling view: the history, then the latest exchange.
   const panel = read('BubblePanel.qml')
   assert.match(panel, /component Exchange: Column \{/)
