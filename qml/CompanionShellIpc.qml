@@ -5,7 +5,6 @@ import qs.Commons
 // Omarchy #13435+: ShellIpc registers with IpcRegistry for the private socket.
 // Keep methods in sync with CompanionIpcHandler.qml. host lives on the wrapper,
 // not the handler: ShellIpc publishes its own properties, and a var cannot
-<<<<<<< HEAD
 // cross IPC.
 Item {
   property var host: null
