@@ -111,6 +111,21 @@ test('two keyed turns with the same reply stay apart', () => {
   assert.equal(fresh.length, 2)
 })
 
+test('a later reply is filed after the question still on screen, not above it', () => {
+  const live = { asked: 'mine', body: 'first reply' }
+  const incoming = [
+    { key: 'u', asked: 'mine', body: 'first reply' },
+    { key: 'g', asked: 'from the other bot', body: 'later reply' }
+  ]
+  const merged = context.mergeExchanges([], incoming, live, 200)
+  assert.equal(merged.length, 2)
+  assert.equal(merged[0].asked, 'mine')
+  assert.equal(merged[0].body, 'first reply')
+  assert.equal(merged[1].asked, 'from the other bot')
+  const onlyLive = context.mergeExchanges([], [incoming[0]], live, 200)
+  assert.equal(onlyLive.length, 0)
+})
+
 test('a live slot whose question is already in the list is filed, even when its reply text differs', () => {
   const history = [
     { asked: 'the question', body: 'the reply' },

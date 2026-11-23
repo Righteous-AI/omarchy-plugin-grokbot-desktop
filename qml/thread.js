@@ -87,7 +87,7 @@ function preferExchange(kept, row) {
 function mergeExchanges(existing, incoming, live, limit) {
   var out = []
   var cap = limit > 0 ? limit : (existing || []).length + (incoming || []).length
-  var i, j, row
+  var i, j, row, sawLive = null
   // A turn already filed twice (the live copy archived on the next send, plus
   // the gateway copy) collapses back to one before new rows are considered.
   for (i = 0; i < (existing || []).length; i++) {
@@ -111,7 +111,24 @@ function mergeExchanges(existing, incoming, live, limit) {
       out[j] = preferExchange(out[j], row)
       break
     }
-    if (known || (live && sameExchange(live, row))) continue
+    if (known) continue
+    // The on-screen turn is not copied while it is the latest one. A later
+    // turn has to land after it, or the new reply shows above the old question.
+    if (live && sameExchange(live, row)) {
+      sawLive = preferExchange(row, live)
+      continue
+    }
+    if (sawLive) {
+      var already = false
+      for (j = 0; j < out.length; j++) {
+        if (!sameExchange(out[j], sawLive)) continue
+        out[j] = preferExchange(out[j], sawLive)
+        already = true
+        break
+      }
+      if (!already) out.push(sawLive)
+      sawLive = null
+    }
     out.push(row)
   }
   return out.slice(Math.max(0, out.length - cap))
