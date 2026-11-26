@@ -2111,6 +2111,10 @@ test('a provider bot opens on its recent history, and earlier pages load twenty 
   // timer wiring, which no harness can trigger.
   assert.match(main, /id: historyRefreshTimer\n\s*\/\/[\s\S]*?interval: root\.bubbleOpen \? 2000 : 30000/)
   assert.match(main, /running: root\.present && !root\.daemonMode/)
+  // The refresh button this branch adds sits in the card header.
+  assert.match(panel, /id: refreshButton/)
+  assert.match(panel, /label: "Refresh"/)
+
   assert.match(qmlFunction(main, 'runHistory'), /bot\.provider === "grokbot"/)
   assert.match(qmlFunction(main, 'loadOlder'), /if \(root\.history\.length >= root\.olderCap\) return "limit"/)
   assert.match(main, /readonly property int olderCap: 100/)
