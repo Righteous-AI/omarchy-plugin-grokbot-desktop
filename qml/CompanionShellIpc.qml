@@ -5,8 +5,7 @@ import qs.Commons
 // Omarchy #13435+: ShellIpc registers with IpcRegistry for the private socket.
 // Keep methods in sync with CompanionIpcHandler.qml. host lives on the wrapper,
 // not the handler: ShellIpc publishes its own properties, and a var cannot
-// cross IPC. copySelection and pasteClipboard sit inside that handler so they
-// land in the same place as PR 46.
+// cross IPC.
 Item {
   property var host: null
 
@@ -54,8 +53,6 @@ Item {
       return host.sayNotice(title, text, [first, second])
     }
     function dismiss(): string { return host.dismissSurfaces() ? "dismissed" : "nothing" }
-    function copySelection(): string { return host.copyFocusedText() }
-    function pasteClipboard(): string { return host.pasteFocusedText() }
     function ping(): string { return "ok" }
   }
 }
