@@ -1708,17 +1708,27 @@ test('each bot keeps its own conversation, and a reply lands with the bot asked'
 })
 
 test('each bot keeps a scrolling history of its conversation', () => {
-  // A new ask or notice moves the latest exchange into the history.
+  // A new ask or notice files the latest exchange once. A gateway row of that
+  // same turn is updated, not appended, so the question and reply are not shown twice.
   const archive = qmlFunction(main, 'archiveExchange')
-  assert.match(archive, /root\.history = root\.history\.concat\(\[\{ asked: root\.askedText, files: root\.askedFiles, body: root\.bubbleBody, links: root\.noticeLinks, wait: root\.awaitingId \}\]\)\.slice\(-root\.historyLimit\)/)
+  assert.match(archive, /Thread\.sameExchange\(history\[i\], row\)/)
+  assert.match(archive, /if \(!placed\) history = history\.concat\(\[row\]\)/)
+  assert.match(archive, /root\.history = history\.slice\(-root\.historyLimit\)/)
+  assert.match(archive, /root\.bubbleBody = ""/)
   assert.match(qmlFunction(main, 'launchAsk'), /root\.archiveExchange\(\)\n\s*root\.askedText = String\(prompt \|\| ""\)/)
   assert.match(qmlFunction(main, 'sayNotice'), /root\.archiveExchange\(\)/)
   assert.match(qmlFunction(main, 'loadThread'), /root\.history = thread\.history \|\| \[\]/)
+  // While the poll files the finished turn the live slot holds it too; the
+  // list copy shows and the live slot stays hidden until it is cleared.
+  assert.match(main, /readonly property bool liveTurnFiled: \{/)
+  assert.match(main, /if \(root\.asking \|\| root\.awaitingId !== ""\) return false/)
+  assert.match(main, /return Thread\.liveIsFiled\(root\.history, \{ asked: root\.askedText, body: root\.bubbleBody \}\)/)
   // One scrolling view: the history, then the latest exchange.
   const panel = read('BubblePanel.qml')
   assert.match(panel, /component Exchange: Column \{/)
   assert.match(panel, /model: app \? app\.history : \[\]\n\s*delegate: Exchange \{/)
   assert.match(panel, /Exchange \{\s*id: latest/)
+  assert.match(panel, /id: latest\n\s*(\/\/[^\n]*\n\s*)*visible: !\(app && app\.liveTurnFiled\)/)
   assert.match(panel, /var end = Math\.max\(0, contentHeight - Math\.min\(threadBox\.cap, contentHeight\)\)\n\s*var target = Math\.min\(end, Math\.max\(0, latest\.y\)\)/)
   assert.match(panel, /if \(!wasAtEnd\) return/)
   assert.match(panel, /readonly property real cap: Math\.max\(140, bubble\.maxHeight - 28 - headerGroup\.height - dividerReveal\.height/)

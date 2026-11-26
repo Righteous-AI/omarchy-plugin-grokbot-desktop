@@ -427,6 +427,13 @@ Item {
   }
   readonly property bool askingHere: root.asking && root.askBotId === root.threadBotId
   readonly property bool waitingHere: root.awaitingId !== ""
+  // The poll files the finished turn in the history a moment before the live
+  // slot is cleared. Until then the two hold the same reply; show it once.
+  readonly property bool liveTurnFiled: {
+    if (root.asking || root.awaitingId !== "") return false
+    if (root.askedText === "" && root.bubbleBody === "") return false
+    return Thread.liveIsFiled(root.history, { asked: root.askedText, body: root.bubbleBody })
+  }
   // Bob works while his ask runs and while its answer is on the way.
   readonly property bool busyHere: root.askingHere || root.waitingHere
   property string pendingJson: ""
@@ -1318,9 +1325,39 @@ Item {
     if (botId === root.threadBotId) {
       var before = root.history
       var next = folded(before)
-      if (!Thread.sameThread(before, next)) {
+      // The finished turn is in the history now. Leave it there once, instead
+      // of also leaving it in the live slot under the list. Keep files and the
+      // longer question that only the live slot still has.
+      var retireLive = false
+      if (!root.asking && root.awaitingId === "" && root.bubbleBody !== "") {
+        var shown = { asked: root.askedText, body: root.bubbleBody }
+        var i
+        for (i = 0; i < next.length; i++) {
+          var same = Thread.sameExchange(next[i], shown)
+          if (!same && !Thread.sameQuestion(next[i], shown)) continue
+          if (same) {
+            var kept = next[i]
+            var liveAsked = Thread.askedShown(root.askedText)
+            var keptAsked = Thread.askedShown(kept.asked)
+            var asked = liveAsked.length > keptAsked.length ? liveAsked : keptAsked
+            var files = (kept.files || []).length ? kept.files : root.askedFiles
+            var links = (kept.links || []).length ? kept.links : root.noticeLinks
+            next = next.slice()
+            next[i] = Object.assign({}, kept, { asked: asked, files: files, links: links })
+          }
+          retireLive = true
+          break
+        }
+      }
+      if (retireLive || !Thread.sameThread(before, next)) {
         root.history = next
         root.rememberTail(next)
+      }
+      if (retireLive) {
+        root.askedText = ""
+        root.askedFiles = []
+        root.bubbleBody = ""
+        root.noticeLinks = []
       }
       return
     }
@@ -1748,7 +1785,26 @@ Item {
   function archiveExchange() {
     root.clearedThread = null
     if (root.askedText === "" && root.bubbleBody === "" && root.noticeLinks.length === 0) return
-    root.history = root.history.concat([{ asked: root.askedText, files: root.askedFiles, body: root.bubbleBody, links: root.noticeLinks, wait: root.awaitingId }]).slice(-root.historyLimit)
+    var row = { asked: root.askedText, files: root.askedFiles, body: root.bubbleBody, links: root.noticeLinks, wait: root.awaitingId }
+    // The gateway poll may already have filed this turn. Appending again is
+    // what showed the question and the reply twice after the next send.
+    var history = root.history.slice()
+    var placed = false
+    var i
+    for (i = 0; i < history.length; i++) {
+      if (!Thread.sameExchange(history[i], row)) continue
+      var kept = history[i]
+      var rowAsked = Thread.askedShown(row.asked)
+      var keptAsked = Thread.askedShown(kept.asked)
+      var asked = rowAsked.length > keptAsked.length ? rowAsked : keptAsked
+      var files = (kept.files || []).length ? kept.files : row.files
+      var links = (kept.links || []).length ? kept.links : row.links
+      history[i] = Object.assign({}, kept, { asked: asked, files: files, links: links })
+      placed = true
+      break
+    }
+    if (!placed) history = history.concat([row])
+    root.history = history.slice(-root.historyLimit)
     root.askedText = ""
     root.askedFiles = []
     root.bubbleBody = ""
@@ -2045,16 +2101,26 @@ Item {
     // Attachments can go on their own, as in a chat app.
     if (prompt === "" && root.pendingFiles.length > 0) prompt = "Have a look at this."
     if (prompt === "") return
-    // Hermes sends a typed line during a live turn ("send now"): stop this
-    // bot's run and send the new line as soon as that process is gone.
+    // Hermes /steer: a line typed while this bot is working goes into the live
+    // turn immediately. The first request keeps running.
     if (root.asking && root.askBotId === root.threadBotId) {
-      root.queuedPrompt = { value: prompt, botId: root.threadBotId, since: Date.now(), sendNow: true }
-      root.promptDraft = ""
-      root.cancelAsk()
+      if (askProc.running && root.askStreaming) {
+        askProc.write(JSON.stringify({ op: "steer", text: prompt }) + "\n")
+        root.promptDraft = ""
+        root.pendingSteer = prompt
+        return
+      }
+      root.queuedPrompt = { value: prompt, botId: root.threadBotId, since: Date.now(), holdOther: true }
       queuedPromptTimer.restart()
       return
     }
-    if (root.asking) return
+    // Another bot holds the one ask slot. Keep the line where the user can see
+    // it and run it the moment that process ends, on the card it was typed in.
+    if (root.asking) {
+      root.queuedPrompt = { value: prompt, botId: root.threadBotId, since: Date.now(), holdOther: true }
+      queuedPromptTimer.restart()
+      return
+    }
     // The last ask is still exiting after Stop. Keep the draft and send it
     // once the process is gone, instead of dropping it as busy.
     if (askProc.running) {
@@ -2079,20 +2145,41 @@ Item {
 
   property var queuedPrompt: null
 
-  // Sends a prompt queued behind an exiting ask, unless the user moved to
-  // another bot or changed the draft meanwhile. Gives up after 5 seconds and
-  // leaves the draft where it is.
+  // Hold a line until the running ask ends. A line already held for the same
+  // bot is kept, with the new one after it, so neither is lost.
+  function holdLine(value, botId) {
+    var held = root.queuedPrompt
+    var text = String(value || "")
+    if (held && held.holdOther && held.botId === botId && held.value !== "" && held.value !== text)
+      text = held.value + "\n\n" + text
+    root.queuedPrompt = { value: text, botId: botId, since: Date.now(), holdOther: true }
+    queuedPromptTimer.restart()
+  }
+
+  // Sends a queued prompt. A line queued behind a stopping ask goes with the
+  // draft it was typed in and gives up after 5 seconds. A line held for another
+  // bot keeps itself, waits out that whole run, and moves the card to the bot
+  // it was addressed to when it fires.
   function retryQueuedPrompt() {
     var queued = root.queuedPrompt
     if (!queued) return "none"
-    if (askProc.running || (queued.sendNow && root.asking)) {
-      if (Date.now() - queued.since < 5000) return "waiting"
-      root.queuedPrompt = null
-      return "gave up"
+    if (askProc.running || ((queued.sendNow || queued.holdOther) && root.asking)) {
+      if (!queued.holdOther) {
+        if (Date.now() - queued.since < 5000) return "waiting"
+        root.queuedPrompt = null
+        return "gave up"
+      }
+      return "waiting"
     }
     root.queuedPrompt = null
     if (queued.sendNow) {
       if (queued.botId !== root.threadBotId) return "dropped"
+      root.launchAsk(queued.value)
+      return "sent"
+    }
+    if (queued.holdOther) {
+      if (queued.botId !== root.threadBotId) root.selectBot(queued.botId)
+      if (root.promptDraft === queued.value) root.promptDraft = ""
       root.launchAsk(queued.value)
       return "sent"
     }
@@ -2103,7 +2190,9 @@ Item {
 
   Timer {
     id: queuedPromptTimer
-    interval: 50
+    // A line held for another bot waits out that whole run, so it polls twice
+    // a second. The short cases keep their 50 ms retry.
+    interval: root.queuedPrompt && root.queuedPrompt.holdOther ? 500 : 50
     repeat: true
     running: false
     onTriggered: if (root.retryQueuedPrompt() !== "waiting") stop()
@@ -2504,6 +2593,8 @@ Item {
 
   // A streaming ask: the reply so far, what the agent is doing, and the final reply.
   property bool askStreaming: false
+  // The line just written into the live turn, until Hermes confirms the steer.
+  property string pendingSteer: ""
   property var askLines: []
   property string askFinal: ""
   property bool askFinalReceived: false
@@ -2526,6 +2617,19 @@ Item {
         } else if (ev.ev === "final") {
           root.askFinal = value
           root.askFinalReceived = true
+        } else if (ev.ev === "steered") {
+          var steered = value !== "" ? value : root.pendingSteer
+          root.pendingSteer = ""
+          if (ev.ok === true && steered !== "") {
+            root.askedText = root.askedText === "" ? steered : (root.askedText + "\n\n" + steered)
+          } else if (steered !== "" && ev.unconfirmed === true) {
+            // Hermes may already have applied it. Put it back in the draft
+            // instead of sending it again.
+            if (root.promptDraft === "") root.promptDraft = steered
+          } else if (steered !== "") {
+            // The turn would not take it. Keep it and send it when this run ends.
+            root.holdLine(steered, root.askBotId)
+          }
         } else if (ev.ev === "prompt") {
           root.showPrompt(Object.assign({}, ev, { bot: root.askBotId }), true)
         } else if (ev.ev === "settled") {

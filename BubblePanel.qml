@@ -837,6 +837,9 @@ Rectangle {
 
             Exchange {
               id: latest
+              // The history already carries this turn while the poll catches
+              // up with the live slot; the list copy is the one that stays.
+              visible: !(app && app.liveTurnFiled)
               fadeReply: true
               asked: app ? app.askedText : ""
               files: app ? app.askedFiles : []
@@ -1289,7 +1292,7 @@ Rectangle {
           onInkChanged: waveCanvas.requestPaint()
 
           HoverArea {
-            label: voiceButton.mode === "stop" ? "Stop" : (voiceButton.mode === "send" && app && app.askingHere ? "Send now" : (voiceButton.mode === "send" ? "Send" : "Dictate"))
+            label: voiceButton.mode === "stop" ? "Stop" : (voiceButton.mode === "send" && app && app.askingHere ? "Steer" : (voiceButton.mode === "send" ? "Send" : "Dictate"))
             tint: voiceButton.mode !== "send"
             onActivated: {
               if (!app) return
